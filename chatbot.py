@@ -7,10 +7,10 @@ import os
 # CONFIGURATION
 # ====================
 # Add your OpenAI API key here or set as environment variable
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "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")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your-api-key-here")
 
 # ADMIN PASSWORD - Change this to your own secure password!
-ADMIN_PASSWORD = "me+you=Love!"
+ADMIN_PASSWORD = "password-here"
 
 # Your brand information (edit this section!)
 YOUR_NAME = "Nicola Harvey"
