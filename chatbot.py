@@ -10,7 +10,7 @@ from pathlib import Path
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
-YOUR_NAME = "Nicola (Nikki) Harvey"
+YOUR_NAME = "Nicola Harvey"
 YOUR_ROLE = "Strategic Consultant & Opportunity Architect"
 BRAND_DESCRIPTION = """Empowering women, creatives, NFP's & startups in crypto, blockchain & AI."""
 
@@ -32,9 +32,16 @@ def save_knowledge_base(knowledge_list):
         json.dump(knowledge_list, f, indent=2)
 
 def search_knowledge(query, knowledge_list, top_k=5):
-    """Simple keyword search in knowledge base"""
+    """Enhanced keyword search in knowledge base"""
     query_lower = query.lower()
-    query_words = set(query_lower.split())
+    
+    # Remove common question words that don't help search
+    stop_words = {'what', 'is', 'are', 'the', 'a', 'an', 'how', 'who', 'where', 
+                  'when', 'why', 'tell', 'me', 'about', 'can', 'you', 'please',
+                  'nikki', 'nikkis', 'nicola', 'nicolas', 'harvey', 'harveys'}
+    
+    # Extract meaningful keywords
+    query_words = set(word for word in query_lower.split() if word not in stop_words and len(word) > 2)
     
     # Score each item based on keyword matches
     scored_items = []
@@ -42,16 +49,28 @@ def search_knowledge(query, knowledge_list, top_k=5):
         content_lower = item['content'].lower()
         category_lower = item['category'].lower()
         
-        # Count matching words
-        content_words = set(content_lower.split())
-        matches = len(query_words.intersection(content_words))
+        score = 0
         
-        # Boost if query words appear in category
-        if any(word in category_lower for word in query_words):
-            matches += 3
+        # Exact phrase match in content (highest score)
+        if query_lower in content_lower:
+            score += 10
         
-        if matches > 0:
-            scored_items.append((matches, item))
+        # Check each keyword
+        for word in query_words:
+            # Word in category (high value)
+            if word in category_lower:
+                score += 5
+            
+            # Word in content
+            if word in content_lower:
+                score += 2
+            
+            # Partial word match (for variations)
+            if any(word in content_word for content_word in content_lower.split()):
+                score += 1
+        
+        if score > 0:
+            scored_items.append((score, item))
     
     # Sort by score and return top results
     scored_items.sort(reverse=True, key=lambda x: x[0])
@@ -226,15 +245,16 @@ Respond naturally and conversationally, but ONLY with information from the conte
 
     # Get AI response
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        
-        # Show debug info if admin
-        if password_input == ADMIN_PASSWORD:
+        # Show debug info FIRST if admin (before placeholder)
+        debug_expander = None
+        if password_input == ADMIN_PASSWORD and ADMIN_PASSWORD:
             st.caption(f"🐛 Debug: {debug_info}")
             if context:
-                with st.expander("📄 Context Retrieved"):
-                    st.write(context[:500] + "..." if len(context) > 500 else context)
+                debug_expander = st.expander("📄 Context Retrieved (Click to expand)")
+                with debug_expander:
+                    st.write(context)
         
+        message_placeholder = st.empty()
         full_response = ""
         
         # Stream the response
