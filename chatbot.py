@@ -10,7 +10,7 @@ import os
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # ADMIN PASSWORD - Change this to your own secure password!
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "TempPassword123")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 # Your brand information (edit this section!)
 YOUR_NAME = "Nicola Harvey"
