@@ -9,7 +9,7 @@ import os
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
-YOUR_NAME = "Nikki Harvey"
+YOUR_NAME = "Nicola (Nikki) Harvey"
 YOUR_ROLE = "Strategic Consultant & Opportunity Architect"
 BRAND_DESCRIPTION = """Empowering women, creatives, NFP's & startups in crypto, blockchain & AI."""
 
