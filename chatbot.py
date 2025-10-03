@@ -6,16 +6,12 @@ import os
 # ====================
 # CONFIGURATION
 # ====================
-# Add your OpenAI API key here or set as environment variable
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-# ADMIN PASSWORD - Change this to your own secure password!
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
-# Your brand information (edit this section!)
-YOUR_NAME = "Nicola Harvey"
-YOUR_ROLE = "AI & Web3 Strategist | Creator of Agency Systems"
-BRAND_DESCRIPTION = """Nicola Harvey is a strategist and thought leader at the intersection of AI, blockchain, and human agency. As AI & Web3 Strategist, she helps individuals, founders, and organisations harness intelligent systems to create stability, unlock new opportunities, and design futures they can actively shape. Her approach blends deep technical understanding with systems thinking, business strategy, and a human-centered perspective informed by her work in trauma-informed and multicultural contexts. Nicola’s voice is relatable but strategic — weaving big ideas like truth, resilience, and creativity with practical anchors like AI workflows, crypto tools, and content systems. She is the co-founder of AI Marketing Content (AIMC), leads AI projects for STARTTS (NSW Service for the Treatment and Rehabilitation of Torture and Trauma Survivors), and is building Frontier Women — a movement to empower women in emerging industries such as AI and Web3. Her mission is simple: to show how technology can be leveraged not just for efficiency or profit, but for agency, empowerment, and creating a parallel stability in an uncertain world."""
+YOUR_NAME = "Nikki Harvey"
+YOUR_ROLE = "Strategic Consultant & Opportunity Architect"
+BRAND_DESCRIPTION = """Empowering women, creatives, NFP's & startups in crypto, blockchain & AI."""
 
 # ====================
 # SETUP
@@ -48,6 +44,23 @@ with st.sidebar:
     if password_input == ADMIN_PASSWORD:
         st.success("✅ Admin access granted!")
         
+        # DEBUG: Show what's in the database
+        st.subheader("🐛 Debug Info")
+        if st.button("🔍 Show All Stored Items"):
+            all_data = collection.get()
+            if all_data['ids']:
+                st.write(f"**Found {len(all_data['ids'])} items:**")
+                for i, (doc_id, doc) in enumerate(zip(all_data['ids'][:5], all_data['documents'][:5])):
+                    st.write(f"**ID {i+1}:** {doc_id}")
+                    st.write(f"**Content preview:** {doc[:100]}...")
+                    st.divider()
+                if len(all_data['ids']) > 5:
+                    st.write(f"... and {len(all_data['ids']) - 5} more items")
+            else:
+                st.warning("⚠️ Database is empty!")
+        
+        st.divider()
+        
         st.subheader("Add Information")
         
         # Text input
@@ -65,14 +78,18 @@ with st.sidebar:
                 chunks = [chunk.strip() for chunk in knowledge_text.split('\n\n') if chunk.strip()]
                 
                 # Add to ChromaDB
+                ids_added = []
                 for i, chunk in enumerate(chunks):
+                    chunk_id = f"{category}_{len(collection.get()['ids'])}_{i}"
                     collection.add(
                         documents=[chunk],
-                        ids=[f"{category}_{len(collection.get()['ids'])}_{i}"],
+                        ids=[chunk_id],
                         metadatas=[{"category": category}]
                     )
+                    ids_added.append(chunk_id)
                 
                 st.success(f"✅ Added {len(chunks)} chunks to knowledge base!")
+                st.write(f"**IDs added:** {', '.join(ids_added[:3])}")
             else:
                 st.error("Please fill in both fields")
         
@@ -113,14 +130,19 @@ if prompt := st.chat_input("Ask me anything..."):
     
     # Get relevant context from knowledge base
     context = ""
+    debug_info = ""
     try:
         results = collection.query(
             query_texts=[prompt],
-            n_results=3
+            n_results=5  # Increased from 3 to 5 for better retrieval
         )
         if results['documents'] and results['documents'][0]:
             context = "\n\n".join(results['documents'][0])
-    except:
+            debug_info = f"Retrieved {len(results['documents'][0])} chunks from knowledge base."
+        else:
+            debug_info = "No relevant chunks found in knowledge base."
+    except Exception as e:
+        debug_info = f"Error querying database: {str(e)}"
         context = ""
     
     # Build system prompt
@@ -128,20 +150,32 @@ if prompt := st.chat_input("Ask me anything..."):
 
 {BRAND_DESCRIPTION}
 
-When answering questions, use the following context from {YOUR_NAME}'s knowledge base if relevant:
+IMPORTANT: When answering questions about {YOUR_NAME}, ALWAYS use the specific information from the context below. DO NOT make up generic answers.
 
-{context if context else "No specific context available - answer based on general knowledge about personal branding."}
+Context from {YOUR_NAME}'s knowledge base:
+{context if context else "No specific context available from knowledge base."}
 
-Respond naturally and conversationally. If you don't have specific information in the context, be honest about it but still be helpful."""
+If the context contains specific information (education, experience, skills, etc.), USE IT in your answer with exact details.
+If no specific information is in the context, say "I don't have that specific information in my knowledge base yet."
+
+Respond naturally and conversationally."""
 
     # Get AI response
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
+        
+        # Show debug info if admin
+        if password_input == ADMIN_PASSWORD:
+            st.caption(f"🐛 Debug: {debug_info}")
+            if context:
+                with st.expander("📄 Context Retrieved"):
+                    st.write(context[:500] + "..." if len(context) > 500 else context)
+        
         full_response = ""
         
         # Stream the response
         for response in client.chat.completions.create(
-            model="gpt-4o-mini",  # Cheaper model, or use "gpt-4" for better quality
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
