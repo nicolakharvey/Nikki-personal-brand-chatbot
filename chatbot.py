@@ -1,7 +1,8 @@
 import streamlit as st
 from openai import OpenAI
-import chromadb
 import os
+import json
+from pathlib import Path
 
 # ====================
 # CONFIGURATION
@@ -14,6 +15,49 @@ YOUR_ROLE = "Strategic Consultant & Opportunity Architect"
 BRAND_DESCRIPTION = """Empowering women, creatives, NFP's & startups in crypto, blockchain & AI."""
 
 # ====================
+# PERSISTENT STORAGE (JSON-based)
+# ====================
+KNOWLEDGE_FILE = "knowledge_base.json"
+
+def load_knowledge_base():
+    """Load knowledge base from JSON file"""
+    if Path(KNOWLEDGE_FILE).exists():
+        with open(KNOWLEDGE_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_knowledge_base(knowledge_list):
+    """Save knowledge base to JSON file"""
+    with open(KNOWLEDGE_FILE, 'w') as f:
+        json.dump(knowledge_list, f, indent=2)
+
+def search_knowledge(query, knowledge_list, top_k=5):
+    """Simple keyword search in knowledge base"""
+    query_lower = query.lower()
+    query_words = set(query_lower.split())
+    
+    # Score each item based on keyword matches
+    scored_items = []
+    for item in knowledge_list:
+        content_lower = item['content'].lower()
+        category_lower = item['category'].lower()
+        
+        # Count matching words
+        content_words = set(content_lower.split())
+        matches = len(query_words.intersection(content_words))
+        
+        # Boost if query words appear in category
+        if any(word in category_lower for word in query_words):
+            matches += 3
+        
+        if matches > 0:
+            scored_items.append((matches, item))
+    
+    # Sort by score and return top results
+    scored_items.sort(reverse=True, key=lambda x: x[0])
+    return [item for score, item in scored_items[:top_k]]
+
+# ====================
 # SETUP
 # ====================
 st.set_page_config(page_title=f"Chat with {YOUR_NAME}", page_icon="💬")
@@ -21,9 +65,9 @@ st.set_page_config(page_title=f"Chat with {YOUR_NAME}", page_icon="💬")
 # Initialize OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Initialize ChromaDB (local storage)
-chroma_client = chromadb.PersistentClient(path="./knowledge_db")
-collection = chroma_client.get_or_create_collection(name="personal_brand")
+# Load knowledge base
+if 'knowledge_base' not in st.session_state:
+    st.session_state.knowledge_base = load_knowledge_base()
 
 # ====================
 # SIDEBAR: KNOWLEDGE BASE MANAGEMENT
@@ -35,7 +79,7 @@ with st.sidebar:
     password_input = st.text_input("🔐 Admin Password:", type="password", key="admin_pass")
     
     # Show stats (visible to everyone)
-    total_items = len(collection.get()['ids'])
+    total_items = len(st.session_state.knowledge_base)
     st.metric("Total Knowledge Items", total_items)
     
     st.divider()
@@ -44,20 +88,30 @@ with st.sidebar:
     if password_input == ADMIN_PASSWORD:
         st.success("✅ Admin access granted!")
         
-        # DEBUG: Show what's in the database
+        # DEBUG: Show what's stored
         st.subheader("🐛 Debug Info")
-        if st.button("🔍 Show All Stored Items"):
-            all_data = collection.get()
-            if all_data['ids']:
-                st.write(f"**Found {len(all_data['ids'])} items:**")
-                for i, (doc_id, doc) in enumerate(zip(all_data['ids'][:5], all_data['documents'][:5])):
-                    st.write(f"**ID {i+1}:** {doc_id}")
-                    st.write(f"**Content preview:** {doc[:100]}...")
-                    st.divider()
-                if len(all_data['ids']) > 5:
-                    st.write(f"... and {len(all_data['ids']) - 5} more items")
+        if st.button("🔍 Show All Categories"):
+            if st.session_state.knowledge_base:
+                categories = {}
+                for item in st.session_state.knowledge_base:
+                    cat = item['category']
+                    categories[cat] = categories.get(cat, 0) + 1
+                
+                st.write("**Categories in knowledge base:**")
+                for cat, count in sorted(categories.items()):
+                    st.write(f"- {cat}: {count} items")
             else:
-                st.warning("⚠️ Database is empty!")
+                st.warning("⚠️ Knowledge base is empty!")
+        
+        if st.button("📄 Show First 3 Items"):
+            if st.session_state.knowledge_base:
+                for i, item in enumerate(st.session_state.knowledge_base[:3]):
+                    st.write(f"**Item {i+1}:**")
+                    st.write(f"Category: {item['category']}")
+                    st.write(f"Content: {item['content'][:150]}...")
+                    st.divider()
+            else:
+                st.warning("⚠️ Knowledge base is empty!")
         
         st.divider()
         
@@ -77,30 +131,41 @@ with st.sidebar:
                 # Split into chunks (by paragraphs)
                 chunks = [chunk.strip() for chunk in knowledge_text.split('\n\n') if chunk.strip()]
                 
-                # Add to ChromaDB
-                ids_added = []
-                for i, chunk in enumerate(chunks):
-                    chunk_id = f"{category}_{len(collection.get()['ids'])}_{i}"
-                    collection.add(
-                        documents=[chunk],
-                        ids=[chunk_id],
-                        metadatas=[{"category": category}]
-                    )
-                    ids_added.append(chunk_id)
+                # Add to knowledge base
+                for chunk in chunks:
+                    st.session_state.knowledge_base.append({
+                        'category': category,
+                        'content': chunk
+                    })
+                
+                # Save to file
+                save_knowledge_base(st.session_state.knowledge_base)
                 
                 st.success(f"✅ Added {len(chunks)} chunks to knowledge base!")
-                st.write(f"**IDs added:** {', '.join(ids_added[:3])}")
+                st.info("💡 To make this permanent in Streamlit Cloud, download the knowledge_base.json file and commit it to GitHub")
             else:
                 st.error("Please fill in both fields")
         
         st.divider()
         
+        # Download knowledge base
+        if st.session_state.knowledge_base:
+            json_str = json.dumps(st.session_state.knowledge_base, indent=2)
+            st.download_button(
+                label="⬇️ Download Knowledge Base (JSON)",
+                data=json_str,
+                file_name="knowledge_base.json",
+                mime="application/json"
+            )
+        
+        st.divider()
+        
         if st.button("🗑️ Clear Knowledge Base"):
-            chroma_client.delete_collection("personal_brand")
-            chroma_client.create_collection("personal_brand")
-            collection = chroma_client.get_collection("personal_brand")
+            st.session_state.knowledge_base = []
+            save_knowledge_base([])
             st.success("Knowledge base cleared!")
             st.rerun()
+            
     elif password_input:
         st.error("❌ Incorrect password")
     else:
@@ -131,34 +196,33 @@ if prompt := st.chat_input("Ask me anything..."):
     # Get relevant context from knowledge base
     context = ""
     debug_info = ""
-    try:
-        results = collection.query(
-            query_texts=[prompt],
-            n_results=5  # Increased from 3 to 5 for better retrieval
-        )
-        if results['documents'] and results['documents'][0]:
-            context = "\n\n".join(results['documents'][0])
-            debug_info = f"Retrieved {len(results['documents'][0])} chunks from knowledge base."
+    
+    if st.session_state.knowledge_base:
+        results = search_knowledge(prompt, st.session_state.knowledge_base, top_k=5)
+        if results:
+            context = "\n\n".join([item['content'] for item in results])
+            debug_info = f"Retrieved {len(results)} relevant chunks from knowledge base."
         else:
-            debug_info = "No relevant chunks found in knowledge base."
-    except Exception as e:
-        debug_info = f"Error querying database: {str(e)}"
-        context = ""
+            debug_info = "No relevant information found for this query."
+    else:
+        debug_info = "Knowledge base is empty. Please add information via the sidebar."
     
     # Build system prompt
     system_prompt = f"""You are a helpful assistant representing {YOUR_NAME}, a {YOUR_ROLE}.
 
 {BRAND_DESCRIPTION}
 
-IMPORTANT: When answering questions about {YOUR_NAME}, ALWAYS use the specific information from the context below. DO NOT make up generic answers.
+CRITICAL INSTRUCTIONS:
+- When answering questions about {YOUR_NAME}, you MUST ONLY use information from the context below
+- If specific information (like education, experience, skills) is in the context, use those EXACT details
+- NEVER make up or infer information that isn't explicitly in the context
+- If the context doesn't contain the requested information, say: "I don't have that specific information in my knowledge base yet. Please ask the admin to add it."
+- DO NOT hallucinate degrees, credentials, or experience that aren't mentioned in the context
 
 Context from {YOUR_NAME}'s knowledge base:
-{context if context else "No specific context available from knowledge base."}
+{context if context else "No information available in knowledge base."}
 
-If the context contains specific information (education, experience, skills, etc.), USE IT in your answer with exact details.
-If no specific information is in the context, say "I don't have that specific information in my knowledge base yet."
-
-Respond naturally and conversationally."""
+Respond naturally and conversationally, but ONLY with information from the context above."""
 
     # Get AI response
     with st.chat_message("assistant"):
@@ -174,19 +238,24 @@ Respond naturally and conversationally."""
         full_response = ""
         
         # Stream the response
-        for response in client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            stream=True,
-        ):
-            if response.choices[0].delta.content:
-                full_response += response.choices[0].delta.content
-                message_placeholder.markdown(full_response + "▌")
-        
-        message_placeholder.markdown(full_response)
+        try:
+            for response in client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                stream=True,
+            ):
+                if response.choices[0].delta.content:
+                    full_response += response.choices[0].delta.content
+                    message_placeholder.markdown(full_response + "▌")
+            
+            message_placeholder.markdown(full_response)
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            st.error(error_msg)
+            full_response = "I encountered an error. Please check your API key in Streamlit Secrets."
     
     st.session_state.messages.append({"role": "assistant", "content": full_response})
 
@@ -195,3 +264,4 @@ Respond naturally and conversationally."""
 # ====================
 st.divider()
 st.caption("💡 Visitors can chat freely. Admin password required to edit knowledge base.")
+st.caption("⚠️ Note: Knowledge added via the interface persists until next deployment. Download and commit to GitHub for permanent storage.")
