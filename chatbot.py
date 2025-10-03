@@ -109,6 +109,9 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 if 'knowledge_base' not in st.session_state:
     st.session_state.knowledge_base = load_knowledge_base()
 
+if 'show_debug' not in st.session_state:
+    st.session_state.show_debug = False
+
 # ====================
 # SIDEBAR: KNOWLEDGE BASE MANAGEMENT
 # ====================
@@ -128,30 +131,58 @@ with st.sidebar:
     if password_input == ADMIN_PASSWORD:
         st.success("✅ Admin access granted!")
         
-        # DEBUG: Show what's stored
-        st.subheader("🐛 Debug Info")
-        if st.button("🔍 Show All Categories"):
-            if st.session_state.knowledge_base:
-                categories = {}
-                for item in st.session_state.knowledge_base:
-                    cat = item['category']
-                    categories[cat] = categories.get(cat, 0) + 1
-                
-                st.write("**Categories in knowledge base:**")
-                for cat, count in sorted(categories.items()):
-                    st.write(f"- {cat}: {count} items")
-            else:
-                st.warning("⚠️ Knowledge base is empty!")
+        # KNOWLEDGE BASE MANAGER
+        st.subheader("🗂️ Manage Knowledge Base")
         
-        if st.button("📄 Show First 3 Items"):
-            if st.session_state.knowledge_base:
-                for i, item in enumerate(st.session_state.knowledge_base[:3]):
-                    st.write(f"**Item {i+1}:**")
-                    st.write(f"Category: {item['category']}")
-                    st.write(f"Content: {item['content'][:150]}...")
-                    st.divider()
+        # View by category
+        if st.session_state.knowledge_base:
+            categories = {}
+            for i, item in enumerate(st.session_state.knowledge_base):
+                cat = item['category']
+                if cat not in categories:
+                    categories[cat] = []
+                categories[cat].append((i, item))
+            
+            st.write(f"**Total Items: {len(st.session_state.knowledge_base)}**")
+            
+            # Category selector
+            view_option = st.selectbox(
+                "View by category:",
+                ["All"] + sorted(categories.keys())
+            )
+            
+            # Show items
+            items_to_show = []
+            if view_option == "All":
+                items_to_show = [(i, item) for i, item in enumerate(st.session_state.knowledge_base)]
             else:
-                st.warning("⚠️ Knowledge base is empty!")
+                items_to_show = categories[view_option]
+            
+            st.write(f"**Showing {len(items_to_show)} items**")
+            
+            # Display items with delete option
+            for idx, item in items_to_show[:20]:  # Show max 20 at a time
+                with st.expander(f"📄 {item['category']} - Item #{idx}"):
+                    st.text_area(
+                        "Content:",
+                        value=item['content'],
+                        height=100,
+                        disabled=True,
+                        key=f"view_{idx}"
+                    )
+                    
+                    col1, col2 = st.columns([3, 1])
+                    with col2:
+                        if st.button("🗑️ Delete", key=f"del_{idx}"):
+                            st.session_state.knowledge_base.pop(idx)
+                            save_knowledge_base(st.session_state.knowledge_base)
+                            st.success(f"Deleted item #{idx}")
+                            st.rerun()
+            
+            if len(items_to_show) > 20:
+                st.info(f"Showing first 20 of {len(items_to_show)} items")
+        else:
+            st.warning("⚠️ Knowledge base is empty!")
         
         st.divider()
         
@@ -161,10 +192,11 @@ with st.sidebar:
         knowledge_text = st.text_area(
             "Paste text about yourself:",
             height=150,
-            placeholder="e.g., Your bio, project descriptions, achievements, values..."
+            placeholder="e.g., Your bio, project descriptions, achievements, values...",
+            key="add_text"
         )
         
-        category = st.text_input("Category/Tag:", placeholder="e.g., bio, projects, skills")
+        category = st.text_input("Category/Tag:", placeholder="e.g., bio, projects, skills", key="add_cat")
         
         if st.button("💾 Save to Knowledge Base"):
             if knowledge_text and category:
@@ -182,7 +214,7 @@ with st.sidebar:
                 save_knowledge_base(st.session_state.knowledge_base)
                 
                 st.success(f"✅ Added {len(chunks)} chunks to knowledge base!")
-                st.info("💡 To make this permanent in Streamlit Cloud, download the knowledge_base.json file and commit it to GitHub")
+                st.info("💡 Download and commit to GitHub for permanent storage")
             else:
                 st.error("Please fill in both fields")
         
@@ -198,14 +230,49 @@ with st.sidebar:
                 mime="application/json"
             )
         
+        # BULK OPERATIONS
+        st.subheader("🔧 Bulk Operations")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Delete by category
+            if st.session_state.knowledge_base:
+                delete_cat = st.selectbox(
+                    "Delete all items from category:",
+                    ["Select..."] + sorted(set(item['category'] for item in st.session_state.knowledge_base))
+                )
+                if delete_cat != "Select..." and st.button(f"🗑️ Delete All from {delete_cat}"):
+                    original_count = len(st.session_state.knowledge_base)
+                    st.session_state.knowledge_base = [
+                        item for item in st.session_state.knowledge_base 
+                        if item['category'] != delete_cat
+                    ]
+                    deleted = original_count - len(st.session_state.knowledge_base)
+                    save_knowledge_base(st.session_state.knowledge_base)
+                    st.success(f"Deleted {deleted} items from {delete_cat}")
+                    st.rerun()
+        
+        with col2:
+            # Search in content
+            search_term = st.text_input("🔍 Search content:", placeholder="Enter keyword...")
+            if search_term:
+                matches = [
+                    (i, item) for i, item in enumerate(st.session_state.knowledge_base)
+                    if search_term.lower() in item['content'].lower()
+                ]
+                st.write(f"Found {len(matches)} matches")
+        
         st.divider()
         
-        if st.button("🗑️ Clear Knowledge Base"):
-            st.session_state.knowledge_base = []
-            save_knowledge_base([])
-            st.success("Knowledge base cleared!")
-            st.rerun()
-            
+        if st.button("🗑️ Clear Entire Knowledge Base"):
+            if st.button("⚠️ Confirm Clear All", key="confirm_clear"):
+                st.session_state.knowledge_base = []
+                save_knowledge_base([])
+                st.success("Knowledge base cleared!")
+                st.rerun()
+        
+        st.divider()
     elif password_input:
         st.error("❌ Incorrect password")
     else:
@@ -272,9 +339,9 @@ Respond naturally and organize the information well, but ensure you include ALL 
 
     # Get AI response
     with st.chat_message("assistant"):
-        # Show debug info FIRST if admin (before placeholder)
+        # Show debug info FIRST if admin AND debug mode enabled
         debug_expander = None
-        if password_input == ADMIN_PASSWORD and ADMIN_PASSWORD:
+        if password_input == ADMIN_PASSWORD and ADMIN_PASSWORD and st.session_state.get('show_debug', False):
             st.caption(f"🐛 Debug: {debug_info}")
             if context:
                 debug_expander = st.expander("📄 Context Retrieved (Click to expand)")
