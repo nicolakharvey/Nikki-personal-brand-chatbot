@@ -217,7 +217,8 @@ if prompt := st.chat_input("Ask me anything..."):
     debug_info = ""
     
     if st.session_state.knowledge_base:
-        results = search_knowledge(prompt, st.session_state.knowledge_base, top_k=5)
+        # Use more results for comprehensive queries
+        results = search_knowledge(prompt, st.session_state.knowledge_base, top_k=15)
         if results:
             context = "\n\n".join([item['content'] for item in results])
             debug_info = f"Retrieved {len(results)} relevant chunks from knowledge base."
@@ -232,16 +233,18 @@ if prompt := st.chat_input("Ask me anything..."):
 {BRAND_DESCRIPTION}
 
 CRITICAL INSTRUCTIONS:
-- When answering questions about {YOUR_NAME}, you MUST ONLY use information from the context below
-- If specific information (like education, experience, skills) is in the context, use those EXACT details
+- When answering questions about {YOUR_NAME}, you MUST use ALL information from the context below
+- If asked about qualifications, education, experience, or credentials, provide a COMPLETE list from everything in the context
+- Organize information clearly and comprehensively
 - NEVER make up or infer information that isn't explicitly in the context
-- If the context doesn't contain the requested information, say: "I don't have that specific information in my knowledge base yet. Please ask the admin to add it."
+- If the context doesn't contain the requested information, say: "I don't have that specific information in my knowledge base yet."
 - DO NOT hallucinate degrees, credentials, or experience that aren't mentioned in the context
+- When multiple pieces of information are provided in the context, synthesize them all into a complete answer
 
 Context from {YOUR_NAME}'s knowledge base:
 {context if context else "No information available in knowledge base."}
 
-Respond naturally and conversationally, but ONLY with information from the context above."""
+Respond naturally and conversationally, using ALL relevant information from the context above."""
 
     # Get AI response
     with st.chat_message("assistant"):
