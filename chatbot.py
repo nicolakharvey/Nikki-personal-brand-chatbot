@@ -31,19 +31,48 @@ def save_knowledge_base(knowledge_list):
     with open(KNOWLEDGE_FILE, 'w') as f:
         json.dump(knowledge_list, f, indent=2)
 
-def search_knowledge(query, knowledge_list, top_k=5):
-    """Enhanced keyword search in knowledge base"""
+def search_knowledge(query, knowledge_list, top_k=15):
+    """Enhanced keyword search with category awareness"""
     query_lower = query.lower()
     
-    # Remove common question words that don't help search
+    # Category keywords mapping - if these are in the query, get ALL items from that category
+    category_keywords = {
+        'education': ['education', 'degree', 'degrees', 'qualification', 'qualifications', 
+                     'university', 'college', 'diploma', 'certificate', 'studied', 'study',
+                     'bachelor', 'masters', 'phd', 'certified', 'credentials', 'academic'],
+        'experience': ['experience', 'work', 'job', 'role', 'position', 'career', 'worked'],
+        'expertise': ['expertise', 'skills', 'expert', 'specialization', 'capabilities'],
+        'bio': ['bio', 'about', 'background', 'who', 'introduction'],
+        'brand-voice': ['voice', 'style', 'tone', 'write', 'writing', 'communication'],
+        'values': ['values', 'mission', 'believe', 'philosophy', 'principles']
+    }
+    
+    # Check if query is asking for a specific category
+    matched_categories = []
+    for category, keywords in category_keywords.items():
+        if any(keyword in query_lower for keyword in keywords):
+            matched_categories.append(category)
+    
+    # If we found category matches, get ALL items from those categories
+    if matched_categories:
+        category_items = []
+        for item in knowledge_list:
+            # Check if item's category matches or contains the matched category
+            item_cat = item['category'].lower()
+            if any(cat in item_cat for cat in matched_categories):
+                category_items.append(item)
+        
+        # If we found items in the matched categories, return all of them
+        if category_items:
+            return category_items
+    
+    # Otherwise, do keyword-based search
     stop_words = {'what', 'is', 'are', 'the', 'a', 'an', 'how', 'who', 'where', 
                   'when', 'why', 'tell', 'me', 'about', 'can', 'you', 'please',
                   'nikki', 'nikkis', 'nicola', 'nicolas', 'harvey', 'harveys'}
     
-    # Extract meaningful keywords
     query_words = set(word for word in query_lower.split() if word not in stop_words and len(word) > 2)
     
-    # Score each item based on keyword matches
     scored_items = []
     for item in knowledge_list:
         content_lower = item['content'].lower()
@@ -51,28 +80,20 @@ def search_knowledge(query, knowledge_list, top_k=5):
         
         score = 0
         
-        # Exact phrase match in content (highest score)
         if query_lower in content_lower:
             score += 10
         
-        # Check each keyword
         for word in query_words:
-            # Word in category (high value)
             if word in category_lower:
                 score += 5
-            
-            # Word in content
             if word in content_lower:
                 score += 2
-            
-            # Partial word match (for variations)
             if any(word in content_word for content_word in content_lower.split()):
                 score += 1
         
         if score > 0:
             scored_items.append((score, item))
     
-    # Sort by score and return top results
     scored_items.sort(reverse=True, key=lambda x: x[0])
     return [item for score, item in scored_items[:top_k]]
 
@@ -217,11 +238,12 @@ if prompt := st.chat_input("Ask me anything..."):
     debug_info = ""
     
     if st.session_state.knowledge_base:
-        # Use more results for comprehensive queries
-        results = search_knowledge(prompt, st.session_state.knowledge_base, top_k=15)
+        # Category-aware search will return ALL items from matched categories
+        results = search_knowledge(prompt, st.session_state.knowledge_base)
         if results:
             context = "\n\n".join([item['content'] for item in results])
-            debug_info = f"Retrieved {len(results)} relevant chunks from knowledge base."
+            categories_found = set(item['category'] for item in results)
+            debug_info = f"Retrieved {len(results)} chunks from categories: {', '.join(categories_found)}"
         else:
             debug_info = "No relevant information found for this query."
     else:
@@ -234,17 +256,19 @@ if prompt := st.chat_input("Ask me anything..."):
 
 CRITICAL INSTRUCTIONS:
 - When answering questions about {YOUR_NAME}, you MUST use ALL information from the context below
-- If asked about qualifications, education, experience, or credentials, provide a COMPLETE list from everything in the context
-- Organize information clearly and comprehensively
+- For questions about education/qualifications/degrees/certifications: List EVERY SINGLE item from the context, organized chronologically or by institution
+- For questions about experience/work: Include ALL positions and roles mentioned
+- For questions about skills/expertise: Include ALL capabilities mentioned
+- Synthesize and organize the information clearly, but include EVERYTHING relevant from the context
+- Group similar items together for clarity (e.g., all degrees from one university together)
 - NEVER make up or infer information that isn't explicitly in the context
-- If the context doesn't contain the requested information, say: "I don't have that specific information in my knowledge base yet."
-- DO NOT hallucinate degrees, credentials, or experience that aren't mentioned in the context
-- When multiple pieces of information are provided in the context, synthesize them all into a complete answer
+- NEVER omit relevant information that is in the context
+- If the context contains 10 items about something, your answer should reference all 10 items
 
 Context from {YOUR_NAME}'s knowledge base:
 {context if context else "No information available in knowledge base."}
 
-Respond naturally and conversationally, using ALL relevant information from the context above."""
+Respond naturally and organize the information well, but ensure you include ALL relevant details from the context above. Completeness is critical."""
 
     # Get AI response
     with st.chat_message("assistant"):
